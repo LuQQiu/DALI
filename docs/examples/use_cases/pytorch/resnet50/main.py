@@ -1,5 +1,6 @@
 import argparse
 import os
+import logging
 import time
 import math
 
@@ -111,6 +112,10 @@ def main():
     if 'RANK' in os.environ:
         global_rank = int(os.environ['RANK'])
 
+    if 'MASTER_ADDR' in os.environ:
+        print('Master address is {}'.format(os.environ['MASTER_ADDR']))
+    if 'MASTER_PORT' in os.environ:
+        print('Master port is {}'.format(os.environ['MASTER_PORT']))
     args.world_size = 1
     if args.distributed:
         print('Inits distributed process group with gloo backend')
