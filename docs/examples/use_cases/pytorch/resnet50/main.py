@@ -186,6 +186,8 @@ def train(train_loader, epoch, batch_size, print_freq, shard_id):
                       'Batch time {3}\t'.format(
                     epoch, i, train_loader_len,
                     batch_time.avg))
+        # use the time.sleep to replace the actually training logics
+        time.sleep(0.3)
 
     duration = time.time() - start
     print('Train loader size is {}, total time is {}, Image/s for this node is {}'.format(train_loader._size, duration, train_loader._size / duration))
