@@ -3,6 +3,9 @@ import os
 import time
 import math
 
+from functools import partial
+from multiprocessing import Pool, Process, Queue, log_to_stderr
+
 import torch
 import torch.nn.parallel
 import torch.optim
@@ -33,8 +36,8 @@ def parse():
                         help='model architecture: ' +
                         ' | '.join(model_names) +
                         ' (default: resnet18)')
-    parser.add_argument('--threads', default=4, type=int, metavar='N',
-                        help='number of data loading threads (default: 4)')
+    parser.add_argument('--process', default=4, type=int, metavar='N',
+                        help='number of data loading processes (default: 4)')
     parser.add_argument('--epochs', default=90, type=int, metavar='N',
                         help='number of total epochs to run')
     parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
@@ -54,9 +57,7 @@ def parse():
     return args
 
 @pipeline_def
-def create_dali_pipeline(data_dir, crop, size, shard_id, num_shards, dali_cpu=False, is_training=True):
-    # TODO(lu) is it possible to reduce the logics for images processing
-    # to better test the read throughput
+def create_dali_pipeline(data_dir, crop, shard_id, num_shards, dali_cpu=True, is_training=True):
     images, labels = fn.readers.file(file_root=data_dir,
                                      shard_id=shard_id,
                                      num_shards=num_shards,
@@ -68,30 +69,19 @@ def create_dali_pipeline(data_dir, crop, size, shard_id, num_shards, dali_cpu=Fa
     device_memory_padding = 211025920 if decoder_device == 'mixed' else 0
     host_memory_padding = 140544512 if decoder_device == 'mixed' else 0
     print('Dali device is {}, decoder device is {}'.format(dali_device, decoder_device))
-    if is_training:
-        images = fn.decoders.image_random_crop(images,
-                                               device=decoder_device, output_type=types.RGB,
-                                               device_memory_padding=device_memory_padding,
-                                               host_memory_padding=host_memory_padding,
-                                               random_aspect_ratio=[0.8, 1.25],
-                                               random_area=[0.1, 1.0],
-                                               num_attempts=100)
-        images = fn.resize(images,
-                           device=dali_device,
-                           resize_x=crop,
-                           resize_y=crop,
-                           interp_type=types.INTERP_TRIANGULAR)
-        mirror = fn.random.coin_flip(probability=0.5)
-    else:
-        images = fn.decoders.image(images,
-                                   device=decoder_device,
-                                   output_type=types.RGB)
-        images = fn.resize(images,
-                           device=dali_device,
-                           size=size,
-                           mode="not_smaller",
-                           interp_type=types.INTERP_TRIANGULAR)
-        mirror = False
+    images = fn.decoders.image_random_crop(images,
+                                           device=decoder_device, output_type=types.RGB,
+                                           device_memory_padding=device_memory_padding,
+                                           host_memory_padding=host_memory_padding,
+                                           random_aspect_ratio=[0.8, 1.25],
+                                           random_area=[0.1, 1.0],
+                                           num_attempts=100)
+    images = fn.resize(images,
+                       device=dali_device,
+                       resize_x=crop,
+                       resize_y=crop,
+                       interp_type=types.INTERP_TRIANGULAR)
+    mirror = fn.random.coin_flip(probability=0.5)
 
     images = fn.crop_mirror_normalize(images,
                                       device=dali_device,
@@ -117,12 +107,9 @@ def main():
     if 'WORLD_SIZE' in os.environ:
         args.distributed = int(os.environ['WORLD_SIZE']) > 1
 
+    global_rank = 0
     if 'RANK' in os.environ:
-        # Arena pytorch distributed mode will give each node a unique RANK
-        # but Arena doesn't have LOCAL_RANK concept, the script has to deal with multi-thread/multi-process itself
-        # TODO(lu) use workers multi-thread reading for now, consider launching multi-process in each node.
-        args.local_rank = int(os.environ['RANK'])
-    shard_id=args.local_rank
+        global_rank = int(os.environ['RANK'])
 
     args.world_size = 1
     if args.distributed:
@@ -132,10 +119,7 @@ def main():
                                              init_method='env://')
         print('Process group inited')
         args.world_size = torch.distributed.get_world_size()
-
-    print('Parameters: world_size[{}], rank[{}], batch_size[{}], data_reader_threads[{}], '
-          'shard_id[{}], num_shards[{}]'.format(args.world_size, os.environ['RANK'], args.batch_size,
-                                                args.threads, shard_id, args.world_size))
+    
     if len(args.data) == 1:
         traindir = os.path.join(args.data[0], 'train')
     else:
@@ -144,21 +128,29 @@ def main():
     if(args.arch == "inception_v3"):
         raise RuntimeError("Currently, inception_v3 is not supported by this example.")
         # crop_size = 299
-        # val_size = 320 # I chose this value arbitrarily, we can adjust.
     else:
         crop_size = 224
-        val_size = 256
 
-    pipe = create_dali_pipeline(batch_size=args.batch_size,
-                                num_threads=args.threads,
+    num_shards = args.world_size * args.process
+    shard_id = range(global_rank * args.process, (global_rank + 1) * args.process - 1)
+    print('Parameters: world_size[{}], global_rank[{}], batch_size[{}], processes[{}], '
+          'num_shards[{}], current_shard_id[{}]'.format(args.world_size, global_rank, args.batch_size,
+                                                args.process, num_shards, shard_id))
+    log_to_stderr(logging.DEBUG)
+    pool = Pool(processes=args.process)
+    dali_func = partial(dali, args.batch_size, traindir, crop_size, args.dali_cpu, num_shards)
+    result = pool.map(dali_func, shard_id)
+    print(result)
+
+def dali(batch_size, traindir, crop_size, dali_cpu, num_shards, shard_id):
+    pipe = create_dali_pipeline(batch_size=batch_size,
+                                num_threads=1,
                                 seed=12 + args.local_rank,
                                 data_dir=traindir,
                                 crop=crop_size,
-                                size=val_size,
-                                dali_cpu=args.dali_cpu,
+                                dali_cpu=dali_cpu,
                                 shard_id=shard_id,
-                                num_shards=args.world_size,
-                                is_training=True,
+                                num_shards=num_shards,
                                 device_id=-99999)
     pipe.build()
 
@@ -168,37 +160,35 @@ def main():
     for epoch in range(args.start_epoch, args.epochs):
         # train for one epoch
         total_train_time = train(train_loader, epoch)
+        print('Total train time is {}'.format(total_train_time))
         total_time.update(total_train_time)
         if args.test:
             break
 
-        train_loader.reset()
+    train_loader.reset()
+    return total_time.sum
 
-def train(train_loader, epoch):
+def train(train_loader, epoch, batch_size, print_freq, shard_id):
     batch_time = AverageMeter()
-    train_loader_len = int(math.ceil(train_loader._size / args.batch_size))
+    train_loader_len = int(math.ceil(train_loader._size / batch_size))
     start = time.time()
     end = time.time()
 
     for i, data in enumerate(train_loader):
         input = data[0]["data"]
         target = data[0]["label"].squeeze(-1).long()
-        if i%args.print_freq == 0:
-            batch_time.update((time.time() - end)/args.print_freq)
+        if i%print_freq == 0:
+            batch_time.update((time.time() - end)/print_freq)
             end = time.time()
 
-            if args.local_rank == 0:
+            if shard_id == 0:
                 print('Epoch: [{0}][{1}/{2}]\t'
-                      'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                      'Speed {3:.3f} ({4:.3f})'.format(
+                      'Batch time {3}\t'.format(
                     epoch, i, train_loader_len,
-                    args.world_size*args.batch_size/batch_time.val,
-                    args.world_size*args.batch_size/batch_time.avg,
-                    batch_time=batch_time))
+                    batch_time.avg))
 
     duration = time.time() - start
     print('Train loader size is {}, total time is {}, Image/s for this node is {}'.format(train_loader._size, duration, train_loader._size / duration))
-    # TODO(lu) collect total data loading time from all the nodes and compute the global IOPS
     return duration
 
 class AverageMeter(object):
