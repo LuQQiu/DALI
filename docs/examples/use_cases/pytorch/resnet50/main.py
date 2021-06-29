@@ -143,11 +143,11 @@ def main():
                                                 args.process, num_shards, shard_id))
     log_to_stderr(logging.DEBUG)
     pool = Pool(processes=args.process)
-    dali_func = partial(dali, args.batch_size, traindir, crop_size, args.dali_cpu, num_shards)
+    dali_func = partial(dali, args.batch_size, traindir, args.print_freq, crop_size, args.dali_cpu, num_shards)
     result = pool.map(dali_func, shard_id)
     print(result)
 
-def dali(batch_size, traindir, crop_size, dali_cpu, num_shards, shard_id):
+def dali(batch_size, traindir, print_freq, crop_size, dali_cpu, num_shards, shard_id):
     pipe = create_dali_pipeline(batch_size=batch_size,
                                 num_threads=1,
                                 seed=12 + args.local_rank,
@@ -164,7 +164,7 @@ def dali(batch_size, traindir, crop_size, dali_cpu, num_shards, shard_id):
     total_time = AverageMeter()
     for epoch in range(args.start_epoch, args.epochs):
         # train for one epoch
-        total_train_time = train(train_loader, epoch)
+        total_train_time = train(train_loader, epoch, batch_size, print_freq, shard_id)
         print('Total train time is {}'.format(total_train_time))
         total_time.update(total_train_time)
         if args.test:
