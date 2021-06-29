@@ -168,11 +168,11 @@ def dali(batch_size, traindir, print_freq, crop_size, dali_cpu, num_shards, shar
     train_loader = DALIClassificationIterator(pipe, reader_name="Reader", last_batch_policy=LastBatchPolicy.PARTIAL)
 
     # train for one epoch
-    total_duration, throughput = train(train_loader, epoch, batch_size, print_freq, shard_id)
+    total_duration, throughput = train(train_loader, batch_size, print_freq, shard_id)
     train_loader.reset()
     return total_duration, throughput
 
-def train(train_loader, epoch, batch_size, print_freq, shard_id):
+def train(train_loader, batch_size, print_freq, shard_id):
     batch_time = AverageMeter()
     train_loader_len = int(math.ceil(train_loader._size / batch_size))
     start = time.time()
@@ -186,10 +186,10 @@ def train(train_loader, epoch, batch_size, print_freq, shard_id):
            end = time.time()
 
            if shard_id == 0:
-               print('Epoch: [{0}][{1}/{2}]\t'
+               print('[[{0}/{1}]\t'
                      'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                     'Speed {3:.3f} ({4:.3f})\t'.format(
-                   epoch, i, train_loader_len,
+                     'Speed {2:.3f} ({3:.3f})\t'.format(
+                   i, train_loader_len,
                    args.world_size*args.batch_size/batch_time.val,
                    args.world_size*args.batch_size/batch_time.avg,
                    batch_time=batch_time))
