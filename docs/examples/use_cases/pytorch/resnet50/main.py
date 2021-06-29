@@ -4,6 +4,7 @@ import logging
 import time
 import math
 
+from datetime import datetime
 from functools import partial
 from multiprocessing import Pool, Process, Queue, log_to_stderr
 
@@ -137,7 +138,7 @@ def main():
         crop_size = 224
 
     num_shards = args.world_size * args.process
-    shard_id = range(global_rank * args.process, (global_rank + 1) * args.process - 1)
+    shard_id = range(global_rank * args.process, (global_rank + 1) * args.process)
     print('Parameters: world_size[{}], global_rank[{}], batch_size[{}], processes[{}], '
           'num_shards[{}], current_shard_id[{}]'.format(args.world_size, global_rank, args.batch_size,
                                                 args.process, num_shards, shard_id))
@@ -149,8 +150,8 @@ def main():
 
 def dali(batch_size, traindir, print_freq, crop_size, dali_cpu, num_shards, shard_id):
     print('Parameters: batch_size[{}], traindir[{}], print_freq[{}], crop_size[{}], dali_cpu[{}], '
-          'num_shards[{}], current_shard_id[{}]'.format(batch_size, traindir, print_freq,
-                                                        crop_size, dali_cpu, num_shards, shard_id))
+          'num_shards[{}], current_shard_id[{}], starting at[{}]'.format(batch_size, traindir, print_freq,
+                                                        crop_size, dali_cpu, num_shards, shard_id, datetime.now().time()))
     pipe = create_dali_pipeline(batch_size=batch_size,
                                 num_threads=1,
                                 seed=12 + args.local_rank,
@@ -198,7 +199,8 @@ def train(train_loader, epoch, batch_size, print_freq, shard_id):
         time.sleep(0.3)
 
     duration = time.time() - start
-    print('Train loader size is {}, total time is {}, Image/s for this node is {}'.format(train_loader._size, duration, train_loader._size / duration))
+    print('End time is {}, Train loader size is {}, total time is {}, Image/s for this node is {}'
+          .format(datetime.now().time(), train_loader._size, duration, train_loader._size / duration))
     return duration
 
 class AverageMeter(object):
