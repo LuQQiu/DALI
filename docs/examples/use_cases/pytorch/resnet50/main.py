@@ -148,6 +148,9 @@ def main():
     print(result)
 
 def dali(batch_size, traindir, print_freq, crop_size, dali_cpu, num_shards, shard_id):
+    print('Parameters: batch_size[{}], traindir[{}], print_freq[{}], crop_size[{}], dali_cpu[{}], '
+          'num_shards[{}], current_shard_id[{}]'.format(batch_size, traindir, print_freq,
+                                                        crop_size, dali_cpu, num_shards, shard_id))
     pipe = create_dali_pipeline(batch_size=batch_size,
                                 num_threads=1,
                                 seed=12 + args.local_rank,
