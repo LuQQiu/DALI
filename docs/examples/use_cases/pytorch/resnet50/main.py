@@ -142,11 +142,13 @@ def main():
     print('Parameters: world_size[{}], global_rank[{}], batch_size[{}], processes[{}], '
           'num_shards[{}], current_shard_id[{}]'.format(args.world_size, global_rank, args.batch_size,
                                                 args.process, num_shards, shard_id))
-    log_to_stderr(logging.DEBUG)
+    logger = log_to_stderr(logging.DEBUG)
     pool = Pool(processes=args.process)
     dali_func = partial(dali, args.batch_size, traindir, args.print_freq, crop_size, args.dali_cpu, num_shards)
-    result = pool.map(dali_func, shard_id)
-    print(result)
+    results = pool.map(dali_func, shard_id)
+    # TODO(lu) follow https://github.com/NVIDIA/DALI/blob/c4e86b55dccba083ae944cf00a478678b7e906cc/docs/examples/use_cases/pytorch/single_stage_detector/main.py
+    # TODO(lu) why worker doesn't have print log
+    print(results)
 
 def dali(batch_size, traindir, print_freq, crop_size, dali_cpu, num_shards, shard_id):
     print('Parameters: batch_size[{}], traindir[{}], print_freq[{}], crop_size[{}], dali_cpu[{}], '
@@ -165,17 +167,10 @@ def dali(batch_size, traindir, print_freq, crop_size, dali_cpu, num_shards, shar
 
     train_loader = DALIClassificationIterator(pipe, reader_name="Reader", last_batch_policy=LastBatchPolicy.PARTIAL)
 
-    total_time = AverageMeter()
-    for epoch in range(args.start_epoch, args.epochs):
-        # train for one epoch
-        total_train_time = train(train_loader, epoch, batch_size, print_freq, shard_id)
-        print('Total train time is {}'.format(total_train_time))
-        total_time.update(total_train_time)
-        if args.test:
-            break
-
+    # train for one epoch
+    total_duration, throughput = train(train_loader, epoch, batch_size, print_freq, shard_id)
     train_loader.reset()
-    return total_time.sum
+    return total_duration, throughput
 
 def train(train_loader, epoch, batch_size, print_freq, shard_id):
     batch_time = AverageMeter()
@@ -187,21 +182,24 @@ def train(train_loader, epoch, batch_size, print_freq, shard_id):
         input = data[0]["data"]
         target = data[0]["label"].squeeze(-1).long()
         if i%print_freq == 0:
-            batch_time.update((time.time() - end)/print_freq)
-            end = time.time()
+           batch_time.update((time.time() - end)/args.print_freq)
+           end = time.time()
 
-            if shard_id == 0:
-                print('Epoch: [{0}][{1}/{2}]\t'
-                      'Batch time {3}\t'.format(
-                    epoch, i, train_loader_len,
-                    batch_time.avg))
+           if shard_id == 0:
+               print('Epoch: [{0}][{1}/{2}]\t'
+                     'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                     'Speed {3:.3f} ({4:.3f})\t'.format(
+                   epoch, i, train_loader_len,
+                   args.world_size*args.batch_size/batch_time.val,
+                   args.world_size*args.batch_size/batch_time.avg,
+                   batch_time=batch_time))
         # use the time.sleep to replace the actually training logics
         time.sleep(0.3)
-
-    duration = time.time() - start
-    print('End time is {}, Train loader size is {}, total time is {}, Image/s for this node is {}'
-          .format(datetime.now().time(), train_loader._size, duration, train_loader._size / duration))
-    return duration
+    total_duration = time.time() - start
+    throughput = train_loader._size / total_duration
+    print('End time is {}, Train loader size is {},Image/s is {}'
+          .format(datetime.now().time(), train_loader._size, throughput))
+    return total_duration, throughput
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
