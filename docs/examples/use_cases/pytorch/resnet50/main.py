@@ -6,7 +6,7 @@ import math
 
 from datetime import datetime
 from functools import partial
-from multiprocessing import Pool, Process, Queue, log_to_stderr
+from multiprocessing import Pool, log_to_stderr
 
 import torch
 import torch.nn.parallel
@@ -23,54 +23,40 @@ try:
 except ImportError:
     raise ImportError("Please install DALI from https://www.github.com/NVIDIA/DALI to run this example.")
 
+
 def parse():
     model_names = sorted(name for name in models.__dict__
-                     if name.islower() and not name.startswith("__")
-                     and callable(models.__dict__[name]))
+                         if name.islower() and not name.startswith("__")
+                         and callable(models.__dict__[name]))
 
     parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
     parser.add_argument('data', metavar='DIR', nargs='*',
                         help='path(s) to dataset (if one path is provided, it is assumed\n' +
-                       'to have subdirectories named "train" and "val"; alternatively,\n' +
-                       'train and val paths can be specified directly by providing both paths as arguments)')
-    parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet18',
-                        choices=model_names,
-                        help='model architecture: ' +
-                        ' | '.join(model_names) +
-                        ' (default: resnet18)')
+                             'to have subdirectories named "train" and "val"; alternatively,\n' +
+                             'train and val paths can be specified directly by providing both paths as arguments)')
     parser.add_argument('--process', default=4, type=int, metavar='N',
                         help='number of data loading processes (default: 4)')
-    parser.add_argument('--epochs', default=90, type=int, metavar='N',
-                        help='number of total epochs to run')
-    parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
-                        help='manual epoch number (useful on restarts)')
     parser.add_argument('-b', '--batch-size', default=256, type=int,
                         metavar='N', help='mini-batch size per process (default: 256)')
     parser.add_argument('--print-freq', '-p', default=10, type=int,
                         metavar='N', help='print frequency (default: 10)')
-    parser.add_argument('--dali_cpu', action='store_true',
-                        help='Runs CPU based version of DALI pipeline.')
-
-    parser.add_argument("--local_rank", default=0, type=int)
-
-    parser.add_argument('-t', '--test', action='store_true',
-                        help='Launch test mode with preset arguments')
     args = parser.parse_args()
     return args
 
+
 @pipeline_def
-def create_dali_pipeline(data_dir, crop, shard_id, num_shards, dali_cpu=True, is_training=True):
+def create_dali_pipeline(data_dir, num_shards, shard_id):
     images, labels = fn.readers.file(file_root=data_dir,
                                      shard_id=shard_id,
                                      num_shards=num_shards,
-                                     random_shuffle=is_training,
+                                     random_shuffle=True,
                                      pad_last_batch=True,
                                      name="Reader")
-    dali_device = 'cpu' if dali_cpu else 'gpu'
-    decoder_device = 'cpu' if dali_cpu else 'mixed'
-    device_memory_padding = 211025920 if decoder_device == 'mixed' else 0
-    host_memory_padding = 140544512 if decoder_device == 'mixed' else 0
-    print('Dali device is {}, decoder device is {}'.format(dali_device, decoder_device))
+    dali_device = 'cpu'
+    decoder_device = 'cpu'
+    device_memory_padding = 0
+    host_memory_padding = 0
+    crop = 224
     images = fn.decoders.image_random_crop(images,
                                            device=decoder_device, output_type=types.RGB,
                                            device_memory_padding=device_memory_padding,
@@ -90,11 +76,9 @@ def create_dali_pipeline(data_dir, crop, shard_id, num_shards, dali_cpu=True, is
                                       dtype=types.FLOAT,
                                       output_layout="CHW",
                                       crop=(crop, crop),
-                                      mean=[0.485 * 255,0.456 * 255,0.406 * 255],
-                                      std=[0.229 * 255,0.224 * 255,0.225 * 255],
+                                      mean=[0.485 * 255, 0.456 * 255, 0.406 * 255],
+                                      std=[0.229 * 255, 0.224 * 255, 0.225 * 255],
                                       mirror=mirror)
-    if dali_device == 'gpu':
-        labels = labels.gpu()
     return images, labels
 
 
@@ -109,59 +93,64 @@ def main():
     if 'WORLD_SIZE' in os.environ:
         args.distributed = int(os.environ['WORLD_SIZE']) > 1
 
-    global_rank = 0
+    rank = 0
     if 'RANK' in os.environ:
-        global_rank = int(os.environ['RANK'])
+        rank = int(os.environ['RANK'])
 
-    if 'MASTER_ADDR' in os.environ:
-        print('Master address is {}'.format(os.environ['MASTER_ADDR']))
-    if 'MASTER_PORT' in os.environ:
-        print('Master port is {}'.format(os.environ['MASTER_PORT']))
     args.world_size = 1
     if args.distributed:
         print('Inits distributed process group with gloo backend')
         # Distributed information will be passed in through environment variable WORLD_SIZE and RANK
         torch.distributed.init_process_group(backend='gloo',
                                              init_method='env://')
-        print('Process group inited')
         args.world_size = torch.distributed.get_world_size()
-    
+
     if len(args.data) == 1:
-        traindir = os.path.join(args.data[0], 'train')
+        train_dir = os.path.join(args.data[0], 'train')
     else:
-        traindir = args.data[0]
+        train_dir = args.data[0]
 
-    if(args.arch == "inception_v3"):
-        raise RuntimeError("Currently, inception_v3 is not supported by this example.")
-        # crop_size = 299
-    else:
-        crop_size = 224
+    master_addr = "N/A"
+    master_port = "N/A"
+    if 'MASTER_ADDR' in os.environ:
+        master_addr = os.environ['MASTER_ADDR']
+    if 'MASTER_PORT' in os.environ:
+        master_port = os.environ['MASTER_PORT']
 
+    # Use multiple processes to mock real machine learning training
     num_shards = args.world_size * args.process
-    shard_id = range(global_rank * args.process, (global_rank + 1) * args.process)
-    print('Parameters: world_size[{}], global_rank[{}], batch_size[{}], processes[{}], '
-          'num_shards[{}], current_shard_id[{}]'.format(args.world_size, global_rank, args.batch_size,
-                                                args.process, num_shards, shard_id))
-    logger = log_to_stderr(logging.DEBUG)
-    pool = Pool(processes=args.process)
-    dali_func = partial(dali, args.batch_size, traindir, args.print_freq, crop_size, args.dali_cpu, num_shards)
-    results = pool.map(dali_func, shard_id)
-    # TODO(lu) follow https://github.com/NVIDIA/DALI/blob/c4e86b55dccba083ae944cf00a478678b7e906cc/docs/examples/use_cases/pytorch/single_stage_detector/main.py
-    # TODO(lu) why worker doesn't have print log
-    print(results)
+    shard_id = range(rank * args.process, (rank + 1) * args.process)
 
-def dali(batch_size, traindir, print_freq, crop_size, dali_cpu, num_shards, shard_id):
-    print('Parameters: batch_size[{}], traindir[{}], print_freq[{}], crop_size[{}], dali_cpu[{}], '
-          'num_shards[{}], current_shard_id[{}], starting at[{}]'.format(batch_size, traindir, print_freq,
-                                                        crop_size, dali_cpu, num_shards, shard_id, datetime.now().time()))
+    print('Launching training script: train_dir[{}], world_size[{}], rank[{}], batch_size[{}], processes[{}], '
+          'num_shards[{}], current_shard_id[{}], master_addr[{}], master_port[{}]'
+          .format(train_dir, args.world_size, rank, args.batch_size, args.process, num_shards,
+                  shard_id, master_addr, master_port))
+
+    log_to_stderr(logging.DEBUG)
+    pool = Pool(processes=args.process)
+    dali_func = partial(dali, args.batch_size, train_dir, args.print_freq, num_shards)
+
+    results = pool.map(dali_func, shard_id)
+    total_time = 0.0
+    image_per_second = 0.0
+    for result in results:
+        total_time += result[0]
+        image_per_second += result[1]
+
+    print("Training end: Average speed: {:3f} img/sec, Total time: {:3f} sec"
+          .format(image_per_second, total_time))
+
+
+def dali(batch_size, train_dir, print_freq, num_shards, shard_id):
+    print('Launching training script in child process: train_dir[{}], batch_size[{}], print_freq[{}], '
+          'num_shards[{}], current_shard_id[{}], starting at[{}]'
+          .format(train_dir, batch_size, print_freq, num_shards, shard_id, datetime.now().time()))
     pipe = create_dali_pipeline(batch_size=batch_size,
                                 num_threads=1,
-                                seed=12 + args.local_rank,
-                                data_dir=traindir,
-                                crop=crop_size,
-                                dali_cpu=dali_cpu,
-                                shard_id=shard_id,
+                                seed=12 + shard_id,
+                                data_dir=train_dir,
                                 num_shards=num_shards,
+                                shard_id=shard_id,
                                 device_id=-99999)
     pipe.build()
 
@@ -172,6 +161,7 @@ def dali(batch_size, traindir, print_freq, crop_size, dali_cpu, num_shards, shar
     train_loader.reset()
     return total_duration, throughput
 
+
 def train(train_loader, batch_size, print_freq, shard_id):
     batch_time = AverageMeter()
     train_loader_len = int(math.ceil(train_loader._size / batch_size))
@@ -181,28 +171,31 @@ def train(train_loader, batch_size, print_freq, shard_id):
     for i, data in enumerate(train_loader):
         input = data[0]["data"]
         target = data[0]["label"].squeeze(-1).long()
-        if i%print_freq == 0:
-           batch_time.update((time.time() - end)/args.print_freq)
-           end = time.time()
+        if i % print_freq == 0:
+            batch_time.update((time.time() - end) / args.print_freq)
+            end = time.time()
 
-           if shard_id == 0:
-               print('[[{0}/{1}]\t'
-                     'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                     'Speed {2:.3f} ({3:.3f})\t'.format(
-                   i, train_loader_len,
-                   args.world_size*args.batch_size/batch_time.val,
-                   args.world_size*args.batch_size/batch_time.avg,
-                   batch_time=batch_time))
-        # use the time.sleep to replace the actually training logics
+            if shard_id == 0:
+                print('[[{0}/{1}]\t'
+                      'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                      'Speed {2:.3f} ({3:.3f})\t'.format(
+                    i, train_loader_len,
+                    args.world_size * args.batch_size / batch_time.val,
+                    args.world_size * args.batch_size / batch_time.avg,
+                    batch_time=batch_time))
+        # Use the time.sleep to replace the actual training logics
         time.sleep(0.3)
-    total_duration = time.time() - start
-    throughput = train_loader._size / total_duration
-    print('End time is {}, Train loader size is {},Image/s is {}'
-          .format(datetime.now().time(), train_loader._size, throughput))
-    return total_duration, throughput
+
+    total_time = time.time() - start
+    throughput = train_loader._size / total_time
+    print('Training in child process ends: Speed: {} image/s, Data Size: {} images, End Time: {}'
+          .format(throughput, train_loader._size, datetime.now().time()))
+    return total_time, throughput
+
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
+
     def __init__(self):
         self.reset()
 
@@ -217,6 +210,7 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
+
 
 if __name__ == '__main__':
     main()
