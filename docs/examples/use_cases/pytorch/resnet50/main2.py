@@ -141,7 +141,7 @@ def main():
                 if not data: break
                 result = pickle.loads(data)
                 print(result)
-                conn.send('I am server')
+                conn.send(bytes("i am server", 'utf-8'))
             conn.close()
             print('client disconnected')
     else:
