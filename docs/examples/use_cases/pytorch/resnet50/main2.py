@@ -130,8 +130,9 @@ def main():
           .format(train_dir, args.world_size, rank, args.batch_size, args.process, num_shards,
                   shard_id, master_addr, master_port))
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    if rank == 0:
-        s.bind(('localhost', args.port))
+    print(socket.gethostname())
+    if socket.gethostname() == "test-job-master-0":
+        s.bind(('test-job-master-0', args.port))
         s.listen(args.world_size)
         while True:
             conn,addr = s.accept()
