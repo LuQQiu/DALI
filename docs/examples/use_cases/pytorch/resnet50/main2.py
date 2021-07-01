@@ -144,6 +144,7 @@ def main():
             conn.close()
             print('client disconnected')
     else:
+        time.sleep(60)
         result = [(rank, rank), (1.1, 2.2), (3.3, 4.4)]
         s.connect((master_addr, args.port))
         s.send(pickle.dumps(result))
