@@ -134,8 +134,8 @@ def main():
     if socket.gethostname() == "test-job-master-0":
         s.bind(('test-job-master-0', args.port))
         s.listen(args.world_size)
-        while True:
-            conn,addr = s.accept()
+        for val in range(args.world_size) - 1:
+            conn, addr = s.accept()
             while True:
                 data = conn.recv(4096)
                 if not data: break
@@ -144,6 +144,7 @@ def main():
                 conn.send(bytes("i am server", 'utf-8'))
             conn.close()
             print('client disconnected')
+        s.close()
     else:
         time.sleep(60)
         result = [(rank, rank), (1.1, 2.2), (3.3, 4.4)]
