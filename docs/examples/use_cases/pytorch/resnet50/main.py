@@ -140,7 +140,8 @@ def main():
     for result in results:
         total_time += result[0]
         image_per_second += result[1]
-
+    print("Training end: Average speed: {:3f} img/sec, Total time: {:3f} sec"
+          .format(image_per_second, total_time))
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     print(socket.gethostname())
     if socket.gethostname() == master_addr:
@@ -158,7 +159,7 @@ def main():
             conn.close()
             print('client disconnected')
         s.close()
-        print("Training end: Average speed: {:3f} img/sec, Total time: {:3f} sec"
+        print("Results from all nodes: Average speed: {:3f} img/sec, Total time: {:3f} sec"
               .format(image_per_second, total_time))
     else:
         while True:
