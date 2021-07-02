@@ -134,7 +134,7 @@ def main():
     if socket.gethostname() == "test-job-master-0":
         s.bind(('test-job-master-0', args.port))
         s.listen(args.world_size)
-        for val in range(args.world_size) - 1:
+        for val in range(args.world_size - 1):
             conn, addr = s.accept()
             while True:
                 data = conn.recv(4096)
