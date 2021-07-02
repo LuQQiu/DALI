@@ -1,6 +1,8 @@
 import argparse
 import os
 import logging
+import pickle
+import socket
 import time
 import math
 
@@ -137,9 +139,39 @@ def main():
         total_time += result[0]
         image_per_second += result[1]
 
-    # TODO(lu) add a socket to receive the img/sec from all nodes in the cluster, since i know 
-    print("Training end: Average speed: {:3f} img/sec, Total time: {:3f} sec"
-          .format(image_per_second, total_time))
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    print(socket.gethostname())
+    if socket.gethostname() == master_addr:
+        s.bind((master_addr, args.port))
+        s.listen(args.world_size)
+        for val in range(args.world_size - 1):
+            conn, addr = s.accept()
+            while True:
+                data = conn.recv(4096)
+                if not data: break
+                worker_data = pickle.loads(data)
+                total_time += worker_data[0]
+                image_per_second += worker_data[1]
+                conn.send(bytes("Received data", 'utf-8'))
+            conn.close()
+            print('client disconnected')
+        s.close()
+        print("Training end: Average speed: {:3f} img/sec, Total time: {:3f} sec"
+              .format(image_per_second, total_time))
+    else:
+        while True:
+            try:
+                data = (total_time, image_per_second)
+                s.connect((master_addr, args.port))
+                s.send(pickle.dumps(data))
+                from_server = s.recv(4096)
+                s.close()
+                print(from_server)
+                break
+            except:
+                print("Cannot connect to master")
+                time.sleep(60)
+
 
 
 def dali(batch_size, train_dir, print_freq, num_shards, shard_id):
