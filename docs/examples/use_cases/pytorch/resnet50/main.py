@@ -42,6 +42,8 @@ def parse():
                         metavar='N', help='mini-batch size per process (default: 256)')
     parser.add_argument('--print-freq', '-p', default=10, type=int,
                         metavar='N', help='print frequency (default: 10)')
+    parser.add_argument('--port', default=5127, type=int,
+                        metavar='N', help='The default port to receive result from all nodes (default:5127)')
     args = parser.parse_args()
     return args
 
