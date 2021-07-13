@@ -3,6 +3,7 @@ import os
 import logging
 import pickle
 import socket
+import sys
 import time
 import math
 
@@ -138,10 +139,6 @@ def main():
     socket_queue = None
     is_master = master_addr == "localhost" or socket.gethostname() == master_addr
     print('isMaster {}'.format(is_master))
-    if is_master:
-        socket_queue = Queue()
-        socket_process = Process(target=waitForResult, args=(node_socket, socket_queue, master_addr, args.port, args.world_size))
-        socket_process.start()
 
     # pool = Pool(processes=args.process)
     dali_func = partial(dali, args.batch_size, train_dir, args.print_freq, num_shards)
@@ -165,10 +162,27 @@ def main():
             print("Cannot connect to master")
 
     if is_master:
-        other_result = socket_queue.get()
-        print(other_result)
-        total_time += other_result[0]
-        image_per_second += other_result[1]
+        socket.bind((master_addr, args.port))
+        socket.listen(args.world_size)
+        for val in range(args.world_size - 1):
+            conn, addr = socket.accept()
+            with conn:
+                print('Connected by', addr)
+                while True:
+                    data = conn.recv(4096)
+                    if not data:
+                        break
+                worker_data = pickle.loads(data)
+                total_time += worker_data[0]
+                image_per_second += worker_data[1]
+                print("Received data, time {}, image per second {}".format(worker_data[0], worker_data[1]))
+                sys.stdout.flush()
+                conn.send(bytes("Received data", 'utf-8'))
+                conn.close()
+                print('client disconnected')
+        socket.close()
+        print("Results from all nodes: Average speed: {:3f} img/sec, Total time: {:3f} sec"
+          .format(image_per_second, total_time))
         print("All training end: Average speed: {:3f} img/sec, Total time: {:3f} sec"
               .format(image_per_second, total_time))
         socket_process.join()
@@ -190,6 +204,7 @@ def waitForResult(socket, queue, master_addr, bind_port, world_size):
             total_time += worker_data[0]
             image_per_second += worker_data[1]
             print("Received data, time {}, image per second {}".format(worker_data[0], worker_data[1]))
+            sys.stdout.flush()
             conn.send(bytes("Received data", 'utf-8'))
             conn.close()
             print('client disconnected')
