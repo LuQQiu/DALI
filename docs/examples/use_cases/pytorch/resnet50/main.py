@@ -131,6 +131,7 @@ def main():
           .format(train_dir, args.world_size, rank, args.batch_size, args.process, num_shards,
                   shard_id, master_addr, master_port))
 
+    log_to_stderr(logging.DEBUG)
     node_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     print(socket.gethostname())
     socket_process = None
@@ -142,7 +143,6 @@ def main():
         socket_process = Process(target=waitForResult, args=(node_socket, socket_queue, master_addr, args.port, args.world_size))
         socket_process.start()
 
-    log_to_stderr(logging.DEBUG)
     # pool = Pool(processes=args.process)
     dali_func = partial(dali, args.batch_size, train_dir, args.print_freq, num_shards)
 
