@@ -135,7 +135,8 @@ def main():
     print(socket.gethostname())
     socket_process = None
     socket_queue = None
-    if socket.gethostname() == master_addr:
+    isMaster = master_addr == "localhost" || socket.gethostname() == master_addr
+    if isMaster:
         socket_queue = Queue()
         socket_process = Process(target=waitForResult, args=(node_socket, socket_queue, master_addr, master_port, args.world_size))
         socket_process.start()
@@ -149,7 +150,7 @@ def main():
     image_per_second = rank * 2
     print("Training end: Average speed: {:3f} img/sec, Total time: {:3f} sec".format(image_per_second, total_time))
 
-    if socket.gethostname() != master_addr:
+    if not isMaster :
         try:
             data = (total_time, image_per_second)
             node_socket.connect((master_addr, args.port))
@@ -160,7 +161,7 @@ def main():
         except:
             print("Cannot connect to master")
 
-    if socket_process is not None:
+    if isMaster:
         other_result = socket_queue.get()
         print(other_result)
         total_time += other_result[0]
