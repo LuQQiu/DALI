@@ -146,7 +146,9 @@ def main():
     # pool = Pool(processes=args.process)
     dali_func = partial(dali, args.batch_size, train_dir, args.print_freq, num_shards)
 
-    time.sleep(randrange(60, 120))
+    if not is_master:
+        time.sleep(200)
+
     total_time = rank
     image_per_second = rank * 2
     print("Training end: Average speed: {:3f} img/sec, Total time: {:3f} sec".format(image_per_second, total_time))
@@ -178,14 +180,19 @@ def waitForResult(socket, queue, master_addr, bind_port, world_size):
     image_per_second = 0
     for val in range(world_size - 1):
         conn, addr = socket.accept()
-        data = conn.recv(4096)
-        worker_data = pickle.loads(data)
-        total_time += worker_data[0]
-        image_per_second += worker_data[1]
-        print("Received data, time {}, image per second {}".format(worker_data[0], worker_data[1]))
-        conn.send(bytes("Received data", 'utf-8'))
-        conn.close()
-        print('client disconnected')
+        with conn:
+            print('Connected by', addr)
+            while True:
+                data = conn.recv(4096)
+                if not data:
+                    break
+            worker_data = pickle.loads(data)
+            total_time += worker_data[0]
+            image_per_second += worker_data[1]
+            print("Received data, time {}, image per second {}".format(worker_data[0], worker_data[1]))
+            conn.send(bytes("Received data", 'utf-8'))
+            conn.close()
+            print('client disconnected')
     socket.close()
     print("Results from all nodes: Average speed: {:3f} img/sec, Total time: {:3f} sec"
           .format(image_per_second, total_time))
