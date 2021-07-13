@@ -120,7 +120,7 @@ def main():
     if 'MASTER_ADDR' in os.environ:
         master_addr = os.environ['MASTER_ADDR']
     if 'MASTER_PORT' in os.environ:
-        master_port = os.environ['MASTER_PORT']
+        master_port = int(os.environ['MASTER_PORT'])
 
     # Use multiple processes to mock real machine learning training
     num_shards = args.world_size * args.process
