@@ -176,11 +176,10 @@ def main():
                 total_time += worker_data[0]
                 image_per_second += worker_data[1]
                 print("Received data, time {}, image per second {}".format(worker_data[0], worker_data[1]))
-                sys.stdout.flush()
                 conn.send(bytes("Received data", 'utf-8'))
                 conn.close()
                 print('client disconnected')
-        socket.close()
+        node_socket.close()
         print("Results from all nodes: Average speed: {:3f} img/sec, Total time: {:3f} sec"
           .format(image_per_second, total_time))
         print("All training end: Average speed: {:3f} img/sec, Total time: {:3f} sec"
