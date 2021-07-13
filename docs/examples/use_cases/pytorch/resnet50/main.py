@@ -8,7 +8,7 @@ import math
 
 from datetime import datetime
 from functools import partial
-from multiprocessing import Pool, log_to_stderr
+from multiprocessing import Pool, log_to_stderr, Process, Queue
 
 import torch
 import torch.nn.parallel
@@ -130,6 +130,15 @@ def main():
           .format(train_dir, args.world_size, rank, args.batch_size, args.process, num_shards,
                   shard_id, master_addr, master_port))
 
+    node_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    print(socket.gethostname())
+    socket_process = None
+    socket_queue = None
+    if node_socket.gethostname() == master_addr:
+        socket_queue = Queue()
+        socket_process = Process(target=waitForResult, args=(node_socket, socket_queue, master_addr, master_port, args.world_size))
+        socket_process.start()
+
     log_to_stderr(logging.DEBUG)
     pool = Pool(processes=args.process)
     dali_func = partial(dali, args.batch_size, train_dir, args.print_freq, num_shards)
@@ -142,40 +151,48 @@ def main():
         image_per_second += result[1]
     print("Training end: Average speed: {:3f} img/sec, Total time: {:3f} sec"
           .format(image_per_second, total_time))
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    print(socket.gethostname())
-    if socket.gethostname() == master_addr:
-        s.bind((master_addr, args.port))
-        s.listen(args.world_size)
-        for val in range(args.world_size - 1):
-            conn, addr = s.accept()
-            while True:
-                data = conn.recv(4096)
-                if not data: break
-                worker_data = pickle.loads(data)
-                total_time += worker_data[0]
-                image_per_second += worker_data[1]
-                conn.send(bytes("Received data", 'utf-8'))
-            conn.close()
-            print('client disconnected')
-        s.close()
-        print("Results from all nodes: Average speed: {:3f} img/sec, Total time: {:3f} sec"
+
+    if socket_process is not None:
+        other_result = socket_queue.get()
+        print(other_result)
+        total_time += other_result[0]
+        image_per_second += other_result[1]
+        print("All training end: Average speed: {:3f} img/sec, Total time: {:3f} sec"
               .format(image_per_second, total_time))
-    else:
+        socket_process.join()
+
+    if socket.gethostname() != master_addr:
+        try:
+            data = (total_time, image_per_second)
+            node_socket.connect((master_addr, args.port))
+            node_socket.send(pickle.dumps(data))
+            from_server = node_socket.recv(4096)
+            node_socket.close()
+            print(from_server)
+        except:
+            print("Cannot connect to master")
+
+def waitForResult(socket, queue, master_addr, master_port, world_size):
+    socket.bind((master_addr, args.port))
+    socket.listen(world_size)
+    total_time = 0
+    image_per_second = 0
+    for val in range(world_size - 1):
+        conn, addr = socket.accept()
         while True:
-            try:
-                data = (total_time, image_per_second)
-                s.connect((master_addr, args.port))
-                s.send(pickle.dumps(data))
-                from_server = s.recv(4096)
-                s.close()
-                print(from_server)
-                break
-            except:
-                print("Cannot connect to master")
-                time.sleep(60)
-
-
+            data = conn.recv(4096)
+            if not data: break
+            worker_data = pickle.loads(data)
+            total_time += worker_data[0]
+            image_per_second += worker_data[1]
+            print("Received data, time {}, image per second {}".format(worker_data[0], worker_data[1]))
+            conn.send(bytes("Received data", 'utf-8'))
+        conn.close()
+        print('client disconnected')
+    socket.close()
+    print("Results from all nodes: Average speed: {:3f} img/sec, Total time: {:3f} sec"
+          .format(image_per_second, total_time))
+    queue.put([total_time, image_per_second])
 
 def dali(batch_size, train_dir, print_freq, num_shards, shard_id):
     print('Launching training script in child process: train_dir[{}], batch_size[{}], print_freq[{}], '
