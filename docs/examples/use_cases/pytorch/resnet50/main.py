@@ -135,14 +135,15 @@ def main():
     print(socket.gethostname())
     socket_process = None
     socket_queue = None
-    isMaster = master_addr == "localhost" or socket.gethostname() == master_addr
-    if isMaster:
+    is_master = master_addr == "localhost" or socket.gethostname() == master_addr
+    print('isMaster {}'.format(is_master))
+    if is_master:
         socket_queue = Queue()
         socket_process = Process(target=waitForResult, args=(node_socket, socket_queue, master_addr, master_port, args.world_size))
         socket_process.start()
 
     log_to_stderr(logging.DEBUG)
-    pool = Pool(processes=args.process)
+    # pool = Pool(processes=args.process)
     dali_func = partial(dali, args.batch_size, train_dir, args.print_freq, num_shards)
 
     time.sleep(randrange(60, 120))
@@ -150,7 +151,7 @@ def main():
     image_per_second = rank * 2
     print("Training end: Average speed: {:3f} img/sec, Total time: {:3f} sec".format(image_per_second, total_time))
 
-    if not isMaster :
+    if not is_master:
         try:
             data = (total_time, image_per_second)
             node_socket.connect((master_addr, args.port))
@@ -161,7 +162,7 @@ def main():
         except:
             print("Cannot connect to master")
 
-    if isMaster:
+    if is_master:
         other_result = socket_queue.get()
         print(other_result)
         total_time += other_result[0]
@@ -171,7 +172,7 @@ def main():
         socket_process.join()
 
 def waitForResult(socket, queue, master_addr, master_port, world_size):
-    socket.bind((master_addr, args.port))
+    socket.bind((master_addr, master_port))
     socket.listen(world_size)
     total_time = 0
     image_per_second = 0
