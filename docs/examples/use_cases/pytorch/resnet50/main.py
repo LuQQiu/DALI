@@ -135,7 +135,7 @@ def main():
     print(socket.gethostname())
     socket_process = None
     socket_queue = None
-    isMaster = master_addr == "localhost" || socket.gethostname() == master_addr
+    isMaster = master_addr == "localhost" or socket.gethostname() == master_addr
     if isMaster:
         socket_queue = Queue()
         socket_process = Process(target=waitForResult, args=(node_socket, socket_queue, master_addr, master_port, args.world_size))
