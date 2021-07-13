@@ -135,7 +135,7 @@ def main():
     print(socket.gethostname())
     socket_process = None
     socket_queue = None
-    if node_socket.gethostname() == master_addr:
+    if socket.gethostname() == master_addr:
         socket_queue = Queue()
         socket_process = Process(target=waitForResult, args=(node_socket, socket_queue, master_addr, master_port, args.world_size))
         socket_process.start()
@@ -143,7 +143,7 @@ def main():
     log_to_stderr(logging.DEBUG)
     pool = Pool(processes=args.process)
     dali_func = partial(dali, args.batch_size, train_dir, args.print_freq, num_shards)
-    
+
     time.sleep(randrange(60, 120))
     total_time = rank
     image_per_second = rank * 2
