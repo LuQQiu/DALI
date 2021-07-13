@@ -139,7 +139,7 @@ def main():
     print('isMaster {}'.format(is_master))
     if is_master:
         socket_queue = Queue()
-        socket_process = Process(target=waitForResult, args=(node_socket, socket_queue, master_addr, master_port, args.world_size))
+        socket_process = Process(target=waitForResult, args=(node_socket, socket_queue, master_addr, args.port, args.world_size))
         socket_process.start()
 
     log_to_stderr(logging.DEBUG)
@@ -171,7 +171,7 @@ def main():
               .format(image_per_second, total_time))
         socket_process.join()
 
-def waitForResult(socket, queue, master_addr, master_port, world_size):
+def waitForResult(socket, queue, master_addr, bind_port, world_size):
     socket.bind((master_addr, master_port))
     socket.listen(world_size)
     total_time = 0
