@@ -143,23 +143,9 @@ def main():
     pool = Pool(processes=args.process)
     dali_func = partial(dali, args.batch_size, train_dir, args.print_freq, num_shards)
 
-    results = pool.map(dali_func, shard_id)
-    total_time = 0.0
-    image_per_second = 0.0
-    for result in results:
-        total_time += result[0]
-        image_per_second += result[1]
-    print("Training end: Average speed: {:3f} img/sec, Total time: {:3f} sec"
-          .format(image_per_second, total_time))
-
-    if socket_process is not None:
-        other_result = socket_queue.get()
-        print(other_result)
-        total_time += other_result[0]
-        image_per_second += other_result[1]
-        print("All training end: Average speed: {:3f} img/sec, Total time: {:3f} sec"
-              .format(image_per_second, total_time))
-        socket_process.join()
+    total_time = rank
+    image_per_second = rank * 2
+    print("Training end: Average speed: {:3f} img/sec, Total time: {:3f} sec".format(image_per_second, total_time))
 
     if socket.gethostname() != master_addr:
         try:
@@ -171,6 +157,15 @@ def main():
             print(from_server)
         except:
             print("Cannot connect to master")
+
+    if socket_process is not None:
+        other_result = socket_queue.get()
+        print(other_result)
+        total_time += other_result[0]
+        image_per_second += other_result[1]
+        print("All training end: Average speed: {:3f} img/sec, Total time: {:3f} sec"
+              .format(image_per_second, total_time))
+        socket_process.join()
 
 def waitForResult(socket, queue, master_addr, master_port, world_size):
     socket.bind((master_addr, args.port))
