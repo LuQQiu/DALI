@@ -172,20 +172,18 @@ def main():
         socket_process.join()
 
 def waitForResult(socket, queue, master_addr, bind_port, world_size):
-    socket.bind((master_addr, master_port))
+    socket.bind((master_addr, bind_port))
     socket.listen(world_size)
     total_time = 0
     image_per_second = 0
     for val in range(world_size - 1):
         conn, addr = socket.accept()
-        while True:
-            data = conn.recv(4096)
-            if not data: break
-            worker_data = pickle.loads(data)
-            total_time += worker_data[0]
-            image_per_second += worker_data[1]
-            print("Received data, time {}, image per second {}".format(worker_data[0], worker_data[1]))
-            conn.send(bytes("Received data", 'utf-8'))
+        data = conn.recv(4096)
+        worker_data = pickle.loads(data)
+        total_time += worker_data[0]
+        image_per_second += worker_data[1]
+        print("Received data, time {}, image per second {}".format(worker_data[0], worker_data[1]))
+        conn.send(bytes("Received data", 'utf-8'))
         conn.close()
         print('client disconnected')
     socket.close()
