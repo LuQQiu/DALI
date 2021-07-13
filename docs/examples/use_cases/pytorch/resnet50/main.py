@@ -9,6 +9,7 @@ import math
 from datetime import datetime
 from functools import partial
 from multiprocessing import Pool, log_to_stderr, Process, Queue
+from random import randrange
 
 import torch
 import torch.nn.parallel
@@ -142,7 +143,8 @@ def main():
     log_to_stderr(logging.DEBUG)
     pool = Pool(processes=args.process)
     dali_func = partial(dali, args.batch_size, train_dir, args.print_freq, num_shards)
-
+    
+    time.sleep(randrange(60, 120))
     total_time = rank
     image_per_second = rank * 2
     print("Training end: Average speed: {:3f} img/sec, Total time: {:3f} sec".format(image_per_second, total_time))
