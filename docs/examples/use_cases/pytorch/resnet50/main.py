@@ -162,10 +162,10 @@ def main():
             print("Cannot connect to master")
 
     if is_master:
-        socket.bind((master_addr, args.port))
-        socket.listen(args.world_size)
+        node_socket.bind((master_addr, args.port))
+        node_socket.listen(args.world_size)
         for val in range(args.world_size - 1):
-            conn, addr = socket.accept()
+            conn, addr = node_socket.accept()
             with conn:
                 print('Connected by', addr)
                 while True:
@@ -187,13 +187,13 @@ def main():
               .format(image_per_second, total_time))
         socket_process.join()
 
-def waitForResult(socket, queue, master_addr, bind_port, world_size):
-    socket.bind((master_addr, bind_port))
-    socket.listen(world_size)
+def waitForResult(node_socket, queue, master_addr, bind_port, world_size):
+    node_socket.bind((master_addr, bind_port))
+    node_socket.listen(world_size)
     total_time = 0
     image_per_second = 0
     for val in range(world_size - 1):
-        conn, addr = socket.accept()
+        conn, addr = node_socket.accept()
         with conn:
             print('Connected by', addr)
             while True:
