@@ -194,7 +194,7 @@ def train(train_loader, batch_size, print_freq, shard_id):
                     batch_time=batch_time))
         # Use the time.sleep to replace the actual training logics
         # TODO(lu) is this correct, 900img/s for 0.3
-        # time.sleep(0.2)
+        time.sleep(1)
 
     total_time = time.time() - start
     throughput = train_loader._size / total_time
