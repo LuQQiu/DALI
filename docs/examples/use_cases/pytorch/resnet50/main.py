@@ -133,19 +133,13 @@ def main():
     results = pool.map(dali_func, shard_id)
     total_time = 0.0
     image_per_second = 0.0
-    total_train_loader_size = 0.0
-    total_image_count = 0.0
-    updated_image_per_second = 0.0
     for result in results:
         total_time += result[0]
         image_per_second += result[1]
-        total_train_loader_size += result[2]
-        total_image_count += result[3]
-        updated_image_per_second += result[4]
 
     # TODO(lu) add a socket to receive the img/sec from all nodes in the cluster, since i know 
-    print("Training end: Average speed: {:3f} img/sec, Total time: {:3f} sec, Total train loader size : {:3f}, Total image count : {:3f}, updated speed {:3f} img/sec"
-          .format(image_per_second, total_time, total_train_loader_size, total_image_count, updated_image_per_second))
+    print("Training end: Average speed: {:3f} img/sec, Total time: {:3f} sec"
+          .format(image_per_second, total_time))
 
 
 def dali(batch_size, train_dir, print_freq, num_shards, shard_id):
@@ -164,9 +158,9 @@ def dali(batch_size, train_dir, print_freq, num_shards, shard_id):
     train_loader = DALIClassificationIterator(pipe, reader_name="Reader", last_batch_policy=LastBatchPolicy.PARTIAL)
 
     # train for one epoch
-    total_duration, throughput, train_loader_size, image_count, updated_throughput = train(train_loader, batch_size, print_freq, shard_id)
+    total_duration, throughput = train(train_loader, batch_size, print_freq, shard_id)
     train_loader.reset()
-    return total_duration, throughput, train_loader_size, image_count, updated_throughput
+    return total_duration, throughput
 
 
 def train(train_loader, batch_size, print_freq, shard_id):
@@ -198,10 +192,9 @@ def train(train_loader, batch_size, print_freq, shard_id):
 
     total_time = time.time() - start
     throughput = train_loader._size / total_time
-    updated_throughput = count / total_time
     print('Training in child process ends: Speed: {} image/s, Data Size: {} images, End Time: {}'
           .format(throughput, train_loader._size, datetime.now().time()))
-    return total_time, throughput, train_loader._size, count, updated_throughput
+    return total_time, throughput
 
 
 class AverageMeter(object):
