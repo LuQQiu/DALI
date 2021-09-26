@@ -137,7 +137,7 @@ def main():
         total_time += result[0]
         image_per_second += result[1]
 
-    # TODO(lu) add a socket to receive the img/sec from all nodes in the cluster, since i know 
+    # TODO(lu) add a socket to receive the img/sec from all nodes in the cluster
     print("Training end: Average speed: {:3f} img/sec, Total time: {:3f} sec"
           .format(image_per_second, total_time))
 
@@ -187,7 +187,6 @@ def train(train_loader, batch_size, print_freq, shard_id):
                     args.world_size * args.batch_size / batch_time.avg,
                     batch_time=batch_time))
         # Use the time.sleep to replace the actual training logics
-        # TODO(lu) is this correct, 900img/s for 0.3
         time.sleep(0.5)
 
     total_time = time.time() - start
